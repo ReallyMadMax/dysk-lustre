@@ -13,7 +13,7 @@ use {
 /// List your filesystems.
 ///
 /// Documentation at https://dystroy.org/dysk
-#[derive(Debug, Parser)]
+#[derive(Debug, Clone, Parser)]
 #[command(author, about, name = "dysk", disable_version_flag = true, version, disable_help_flag = true)]
 pub struct Args {
 

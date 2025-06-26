@@ -108,11 +108,11 @@ fn collect_lustre_mounts(mntdir: &str, fsname: &str) -> Result<Vec<Mount>, Box<d
 
             if rc == 0 || rc == -61 { // Success or ENODATA (inactive)
                 if let Ok(mdt_mount) = create_lustre_component_mount(
-                    mntdir, 
-                    fsname, 
-                    &stat_buf, 
-                    &uuid_buf, 
-                    "MDT", 
+                    mntdir,
+                    fsname,
+                    &stat_buf,
+                    &uuid_buf,
+                    "MDT",
                     mdt_index,
                     rc
                 ) {
@@ -139,11 +139,11 @@ fn collect_lustre_mounts(mntdir: &str, fsname: &str) -> Result<Vec<Mount>, Box<d
 
             if rc == 0 || rc == -61 { // Success or ENODATA (inactive)
                 if let Ok(ost_mount) = create_lustre_component_mount(
-                    mntdir, 
-                    fsname, 
-                    &stat_buf, 
-                    &uuid_buf, 
-                    "OST", 
+                    mntdir,
+                    fsname,
+                    &stat_buf,
+                    &uuid_buf,
+                    "OST",
                     ost_index,
                     rc
                 ) {
@@ -157,7 +157,7 @@ fn collect_lustre_mounts(mntdir: &str, fsname: &str) -> Result<Vec<Mount>, Box<d
         if let Ok(client_mount) = create_lustre_client_mount(mntdir, fsname) {
             mounts.push(client_mount);
         }
-        
+
         libc::close(fd);
     }
 
@@ -166,15 +166,15 @@ fn collect_lustre_mounts(mntdir: &str, fsname: &str) -> Result<Vec<Mount>, Box<d
 
 /// Create a Mount entry for an individual Lustre component (MDT or OST)
 unsafe fn create_lustre_component_mount(
-    mntdir: &str, 
-    fsname: &str, 
+    mntdir: &str,
+    fsname: &str,
     stat_buf: &obd_statfs,
     uuid_buf: &obd_uuid,
     component_type: &str,
     index: u32,
     rc: i32
 ) -> Result<Mount, Box<dyn std::error::Error>> {
-    
+
     let uuid_str = uuid_to_string(uuid_buf);
     let component_name = if uuid_str.is_empty() {
         format!("{}:{:04x}", component_type, index)
@@ -184,13 +184,13 @@ unsafe fn create_lustre_component_mount(
 
     // Create a unique mount point path for this component
     let component_mount_point = PathBuf::from(format!("{}[{}:{}]", mntdir, component_type, index));
-    
+
     let mount_info = MountInfo {
         id: 0, // We'll need to generate appropriate IDs
         parent: 0,
-        dev: DeviceId { 
+        dev: DeviceId {
             major: if component_type == "MDT" { 1 } else { 2 }, // Differentiate MDT vs OST
-            minor: index 
+            minor: index
         },
         fs: component_name,
         fs_type: "lustre".to_string(),
@@ -302,10 +302,10 @@ unsafe fn create_lustre_client_mount(mntdir: &str, fsname: &str) -> Result<Mount
 
     // Create Mount structure compatible with dysk
     let mount_info = MountInfo {
-        id: 0, // We'll need to generate appropriate IDs
+        id: 0,
         parent: 0,
-        dev: DeviceId { major: 0, minor: 0 }, // Lustre doesn't have traditional device IDs
-        fs: format!("{}@lustre", fsname), // Make it clear this is the aggregated view
+        dev: DeviceId { major: 0, minor: 0 },
+        fs: "filesystem_summary".to_string(),
         fs_type: "lustre".to_string(),
         mount_point: PathBuf::from(mntdir),
         bound: false,

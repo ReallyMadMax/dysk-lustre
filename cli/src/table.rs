@@ -27,7 +27,18 @@ pub fn print(mounts: &[&Mount], color: bool, args: &Args) {
     let units = args.units;
     let mut expander = OwningTemplateExpander::new();
     expander.set_default("");
+    
+    // Check if this is a Lustre-only display
+    let is_lustre_display = mounts.iter().all(|m| m.info.fs_type == "lustre") && mounts.len() > 1;
+    let mut added_separator = false;
+    
     for mount in mounts {
+        // Add empty row separator before client mount (filesystem summary) in Lustre display
+        if is_lustre_display && !added_separator && mount.info.fs == "filesystem_summary" {
+            expander.sub("rows"); // Add empty row
+            added_separator = true;
+        }
+        
         let sub = expander
             .sub("rows")
             .set("id", mount.info.id)
