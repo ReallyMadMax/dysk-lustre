@@ -6,7 +6,7 @@
 use lfs_core::{Mount, MountInfo, Stats, Inodes, DeviceId};
 use std::{
     ffi::{CString, CStr},
-    os::raw::{c_char, c_int, c_uint},
+    os::raw::{c_char},
     path::PathBuf,
 };
 
@@ -91,18 +91,152 @@ fn collect_lustre_mounts(mntdir: &str, fsname: &str) -> Result<Vec<Mount>, Box<d
             return Err(format!("Cannot open '{}': {}", mntdir, std::io::Error::last_os_error()).into());
         }
 
-        // Create a client mount entry
+        // Create individual MDT entries
+        let mut mdt_index = 0;
+        while mdt_index < LOV_ALL_STRIPES {
+            let mut stat_buf = obd_statfs::default();
+            let mut uuid_buf = obd_uuid::default();
+
+            let rc = llapi_obd_fstatfs(fd, LL_STATFS_LMV, mdt_index, &mut stat_buf, &mut uuid_buf);
+            if rc == -38 { // ENODEV - no more MDTs
+                break;
+            }
+            if rc == -11 { // EAGAIN - continue to next
+                mdt_index += 1;
+                continue;
+            }
+
+            if rc == 0 || rc == -61 { // Success or ENODATA (inactive)
+                if let Ok(mdt_mount) = create_lustre_component_mount(
+                    mntdir, 
+                    fsname, 
+                    &stat_buf, 
+                    &uuid_buf, 
+                    "MDT", 
+                    mdt_index,
+                    rc
+                ) {
+                    mounts.push(mdt_mount);
+                }
+            }
+            mdt_index += 1;
+        }
+
+        // Create individual OST entries
+        let mut ost_index = 0;
+        while ost_index < LOV_ALL_STRIPES {
+            let mut stat_buf = obd_statfs::default();
+            let mut uuid_buf = obd_uuid::default();
+
+            let rc = llapi_obd_fstatfs(fd, LL_STATFS_LOV, ost_index, &mut stat_buf, &mut uuid_buf);
+            if rc == -38 { // ENODEV - no more OSTs
+                break;
+            }
+            if rc == -11 { // EAGAIN - continue to next
+                ost_index += 1;
+                continue;
+            }
+
+            if rc == 0 || rc == -61 { // Success or ENODATA (inactive)
+                if let Ok(ost_mount) = create_lustre_component_mount(
+                    mntdir, 
+                    fsname, 
+                    &stat_buf, 
+                    &uuid_buf, 
+                    "OST", 
+                    ost_index,
+                    rc
+                ) {
+                    mounts.push(ost_mount);
+                }
+            }
+            ost_index += 1;
+        }
+
+        // Create aggregated client mount entry (filesystem summary)
         if let Ok(client_mount) = create_lustre_client_mount(mntdir, fsname) {
             mounts.push(client_mount);
         }
-
-        // Optionally add individual component information
-        // This could be controlled by a flag like --lustre-components
         
         libc::close(fd);
     }
 
     Ok(mounts)
+}
+
+/// Create a Mount entry for an individual Lustre component (MDT or OST)
+unsafe fn create_lustre_component_mount(
+    mntdir: &str, 
+    fsname: &str, 
+    stat_buf: &obd_statfs,
+    uuid_buf: &obd_uuid,
+    component_type: &str,
+    index: u32,
+    rc: i32
+) -> Result<Mount, Box<dyn std::error::Error>> {
+    
+    let uuid_str = uuid_to_string(uuid_buf);
+    let component_name = if uuid_str.is_empty() {
+        format!("{}:{:04x}", component_type, index)
+    } else {
+        uuid_str.clone()
+    };
+
+    // Create a unique mount point path for this component
+    let component_mount_point = PathBuf::from(format!("{}[{}:{}]", mntdir, component_type, index));
+    
+    let mount_info = MountInfo {
+        id: 0, // We'll need to generate appropriate IDs
+        parent: 0,
+        dev: DeviceId { 
+            major: if component_type == "MDT" { 1 } else { 2 }, // Differentiate MDT vs OST
+            minor: index 
+        },
+        fs: component_name,
+        fs_type: "lustre".to_string(),
+        mount_point: component_mount_point,
+        bound: false,
+        root: Default::default(),
+    };
+
+    let stats = if rc == 0 { // Success
+        Ok(Stats {
+            bsize: stat_buf.os_bsize as u64,
+            blocks: stat_buf.os_blocks,
+            bfree: stat_buf.os_bfree,
+            bavail: stat_buf.os_bavail,
+            inodes: if component_type == "MDT" && stat_buf.os_files > 0 {
+                // Only MDTs typically have meaningful inode information
+                Some(Inodes {
+                    files: stat_buf.os_files,
+                    ffree: stat_buf.os_ffree,
+                    favail: stat_buf.os_ffree,
+                })
+            } else if component_type == "OST" && stat_buf.os_files > 0 {
+                // OSTs may have file objects but different semantics
+                Some(Inodes {
+                    files: stat_buf.os_files,
+                    ffree: stat_buf.os_ffree,
+                    favail: stat_buf.os_ffree,
+                })
+            } else {
+                None
+            },
+        })
+    } else {
+            Err(lfs_core::StatsError::Unreachable)
+        };
+
+    let mount = Mount {
+        info: mount_info,
+        stats,
+        disk: None, // Lustre components don't map to traditional disks
+        fs_label: Some(format!("{}-{}", fsname, component_type)),
+        uuid: if uuid_str.is_empty() { None } else { Some(uuid_str) },
+        part_uuid: None,
+    };
+
+    Ok(mount)
 }
 
 unsafe fn create_lustre_client_mount(mntdir: &str, fsname: &str) -> Result<Mount, Box<dyn std::error::Error>> {
@@ -112,13 +246,14 @@ unsafe fn create_lustre_client_mount(mntdir: &str, fsname: &str) -> Result<Mount
         return Err("Cannot open mount directory".into());
     }
 
-    // Stats from all OSTs for space information
+    // Aggregate stats from all OSTs for space information
     let mut total_blocks = 0u64;
     let mut total_bfree = 0u64;
     let mut total_bavail = 0u64;
     let mut total_files = 0u64;
     let mut total_ffree = 0u64;
-    let mut bsize = 1u32;
+    let mut bsize = 4096u32; // Default block size
+    let mut ost_count = 0;
 
     // Get OST stats for space
     let mut index = 0;
@@ -128,11 +263,18 @@ unsafe fn create_lustre_client_mount(mntdir: &str, fsname: &str) -> Result<Mount
 
         let rc = llapi_obd_fstatfs(fd, LL_STATFS_LOV, index, &mut stat_buf, &mut uuid_buf);
         if rc == -38 { break; } // ENODEV
+        if rc == -11 { // EAGAIN
+            index += 1;
+            continue;
+        }
         if rc == 0 {
             total_blocks += stat_buf.os_blocks;
             total_bfree += stat_buf.os_bfree;
             total_bavail += stat_buf.os_bavail;
-            bsize = stat_buf.os_bsize;
+            if bsize == 4096 { // Use first valid bsize
+                bsize = stat_buf.os_bsize;
+            }
+            ost_count += 1;
         }
         index += 1;
     }
@@ -145,6 +287,10 @@ unsafe fn create_lustre_client_mount(mntdir: &str, fsname: &str) -> Result<Mount
 
         let rc = llapi_obd_fstatfs(fd, LL_STATFS_LMV, index, &mut stat_buf, &mut uuid_buf);
         if rc == -38 { break; } // ENODEV
+        if rc == -11 { // EAGAIN
+            index += 1;
+            continue;
+        }
         if rc == 0 {
             total_files += stat_buf.os_files;
             total_ffree += stat_buf.os_ffree;
@@ -159,14 +305,14 @@ unsafe fn create_lustre_client_mount(mntdir: &str, fsname: &str) -> Result<Mount
         id: 0, // We'll need to generate appropriate IDs
         parent: 0,
         dev: DeviceId { major: 0, minor: 0 }, // Lustre doesn't have traditional device IDs
-        fs: fsname.to_string(),
+        fs: format!("{}@lustre", fsname), // Make it clear this is the aggregated view
         fs_type: "lustre".to_string(),
         mount_point: PathBuf::from(mntdir),
         bound: false,
         root: Default::default(),
     };
 
-    let stats = if total_blocks > 0 {
+    let stats = if total_blocks > 0 && ost_count > 0 {
         Ok(Stats {
             bsize: bsize as u64,
             blocks: total_blocks,
@@ -190,8 +336,8 @@ unsafe fn create_lustre_client_mount(mntdir: &str, fsname: &str) -> Result<Mount
         info: mount_info,
         stats,
         disk: None,
-        fs_label: None,
-        uuid: None, // Could add Lustre filesystem UUID here
+        fs_label: Some(format!("Lustre-{}", fsname)),
+        uuid: None,
         part_uuid: None,
     };
 
@@ -199,7 +345,7 @@ unsafe fn create_lustre_client_mount(mntdir: &str, fsname: &str) -> Result<Mount
 }
 
 /// Check if Lustre is available on the system
-pub fn test_lustre_availability() -> bool {
+pub fn lustre_availability() -> bool {
     // Check if lfs command is available
     std::process::Command::new("lfs")
         .arg("--version")
@@ -214,7 +360,7 @@ mod tests {
 
     #[test]
     fn test_lustre_availability() {
-        let _available = test_lustre_availability();
+        let _available = lustre_availability();
     }
 
     #[test]
