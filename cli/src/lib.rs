@@ -150,13 +150,21 @@ pub fn run() {
     }
     
     let final_args = if has_lustre_mounts && !args.all && mounts.iter().all(|m| m.info.fs_type == "lustre") {
-        // Use optimized column set
         if args.cols == Cols::default() {
             let mut modified_args = args.clone();
             modified_args.cols = "fs+used+use+free+size+mp".parse().unwrap();
             modified_args
         } else {
-            args.clone()
+            let cols_str = format!("{:?}", args.cols);
+            if cols_str.starts_with('+') || cols_str.starts_with('-') {
+                let mut modified_args = args.clone();
+                let lustre_base = "fs+used+use+free+size+mp";
+                let user_cols = "";
+                modified_args.cols = format!("{}+{}", lustre_base, user_cols).parse().unwrap();
+                modified_args
+            } else {
+                args.clone()
+            }
         }
     } else {
         args.clone()

@@ -66,10 +66,10 @@ pub fn print(mounts: &[&Mount], color: bool, args: &Args) {
                     sub
                         .set("size", inodes.files)
                         .set("used", inodes.used())
-                        .set("use-percents", format!("{:.0}%", 100.0 * iuse_share))
+                        .set("use-percents", format!("{:>3.0}%", 100.0 * iuse_share))
                         .set_md("bar", progress_bar_md(iuse_share, BAR_WIDTH, args.ascii))
                         .set("free", inodes.favail)
-                        .set("free-percents", format!("{:.0}%", 100.0 * ifree_share));
+                        .set("free-percents", format!("{:>3.0}%", 100.0 * ifree_share));
                 } else {
                     sub.set("use-error", "no inodes data");
                 }
@@ -83,7 +83,7 @@ pub fn print(mounts: &[&Mount], color: bool, args: &Args) {
                     .set("use-percents", format!("{:>3.0}%", 100.0 * use_share))
                     .set_md("bar", progress_bar_md(use_share, BAR_WIDTH, args.ascii))
                     .set("free", units.fmt(stats.available()))
-                    .set("free-percents", format!("{:.0}%", 100.0 * free_share));
+                    .set("free-percents", format!("{:>3.0}%", 100.0 * free_share));
             }
             
             // Always set the dedicated inode columns regardless of mode

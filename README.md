@@ -17,18 +17,23 @@
 [srep]: https://repology.org/badge/tiny-repos/dysk.svg
 [lrep]: https://repology.org/project/dysk/versions
 
-A linux utility listing your filesystems.
+A linux utility listing your lustre filesystems.
 
 Complete documentation lives at **[https://dystroy.org/dysk](https://dystroy.org/dysk)**
 
 * **[Overview](https://dystroy.org/dysk/)**
 * **[Installation](https://dystroy.org/dysk/install)**
 
-dysk was previously known as lfs.
+Dysk was previously known as lfs.
+This fork aims to replace the existing lfs df utility.
 
 ### Default table
 
-![screenshot](website/docs/img/dysk.png)
+![screenshot](website/docs/img/default_table.png)
+
+### Inodes table
+
+![screenshot](website/docs/img/default_inodes.png)
 
 ### Custom choice of column
 
@@ -44,7 +49,9 @@ You can output the table as CSV too.
 
 ### Filters
 
-![screenshot](website/docs/img/dysk_filters.png)
+![screenshot](website/docs/img/ost_only.png)
+![screenshot](website/docs/img/ost_filter_2.png)
+
 
 ### Sort
 
