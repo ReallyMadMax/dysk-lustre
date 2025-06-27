@@ -13,7 +13,7 @@ macro_rules! col_enum {
     (@just_variant $variant:ident $discarded:ident) => {
         Col::$variant
     };
-    ($($variant:ident $name:literal $($alias:literal)* : $title:literal $($def:ident)*,)*) => {
+    ($($variant:ident $name:literal $($alias:literal)* : $title:literal $inode_title:literal $($def:ident)*,)*) => {
         /// A column of the lfs table.
         #[derive(Debug, Clone, Copy, PartialEq)]
         pub enum Col {
@@ -45,7 +45,7 @@ macro_rules! col_enum {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 match self {
                     $(
-                        Self::$variant => write!(f, "{}", self.title()),
+                        Self::$variant => write!(f, "{}", self.title(false)),
                     )*
                 }
             }
@@ -58,10 +58,10 @@ macro_rules! col_enum {
                     )*
                 }
             }
-            pub fn title(self) -> &'static str {
+            pub fn title(self, inodes_mode: bool) -> &'static str {
                 match self {
                     $(
-                        Self::$variant => $title,
+                        Self::$variant => if inodes_mode { $inode_title } else { $title },
                     )*
                 }
             }
@@ -81,30 +81,29 @@ macro_rules! col_enum {
 
 // definition of all columns and their names
 // in the --cols definition
+// syntax: Variant name [aliases]: byte_title inode_title [default]
 col_enum!(
-    // syntax:
-    // Variant name [aliases]: title [default]
-    Id "id": "id",
-    Dev "dev" "device" "device_id": "dev",
-    Filesystem "fs" "filesystem": "filesystem" default,
-    Label "label": "label",
-    Type "type": "type" default,
-    Remote "remote" "rem": "remote",
-    Disk "disk" "dsk": "disk" default,
-    Used "used": "used" default,
-    Use "use": "use" default,
-    UsePercent "use_percent": "use%",
-    Free "free": "free" default,
-    FreePercent "free_percent": "free%",
-    Size "size": "size" default,
-    InodesUsed "inodes_used" "iused": "used inodes",
-    InodesUse "inodes" "ino" "inodes_use" "iuse": "inodes",
-    InodesUsePercent "inodes_use_percent" "iuse_percent": "inodes%",
-    InodesFree "inodes_free" "ifree": "free inodes",
-    InodesCount "inodes_total" "inodes_count" "itotal": "inodes total",
-    MountPoint "mount" "mount_point" "mp": "mount point" default,
-    Uuid "uuid": "UUID",
-    PartUuid "partuuid" "part_uuid": "PARTUUID",
+    Id "id": "id" "id",
+    Dev "dev" "device" "device_id": "dev" "dev",
+    Filesystem "fs" "filesystem": "filesystem" "filesystem" default,
+    Label "label": "label" "label",
+    Type "type": "type" "type" default,
+    Remote "remote" "rem": "remote" "remote",
+    Disk "disk" "dsk": "disk" "disk" default,
+    Used "used": "bytes used" "inodes used" default,
+    Use "use": "use %" "use %" default,
+    UsePercent "use_percent": "bytes %" "inodes %",
+    Free "free": "bytes free" "inodes free" default,
+    FreePercent "free_percent": "bytes free %" "inodes free %",
+    Size "size": "bytes total" "inodes total" default,
+    InodesUsed "inodes_used" "iused": "used inodes" "used inodes",
+    InodesUse "inodes" "ino" "inodes_use" "iuse": "inodes" "inodes",
+    InodesUsePercent "inodes_use_percent" "iuse_percent": "inodes%" "inodes%",
+    InodesFree "inodes_free" "ifree": "free inodes" "free inodes",
+    InodesCount "inodes_total" "inodes_count" "itotal": "inodes total" "inodes total",
+    MountPoint "mount" "mount_point" "mp": "mount point" "mount point" default,
+    Uuid "uuid": "UUID" "UUID",
+    PartUuid "partuuid" "part_uuid": "PARTUUID" "PARTUUID",
 );
 
 impl Col {
@@ -117,24 +116,24 @@ impl Col {
     }
     pub fn content_align(self) -> Alignment {
         match self {
-            Self::Id => Alignment::Right,
+            Self::Id => Alignment::Center,
             Self::Dev => Alignment::Center,
             Self::Filesystem => Alignment::Left,
             Self::Label => Alignment::Left,
             Self::Type => Alignment::Center,
             Self::Remote => Alignment::Center,
             Self::Disk => Alignment::Center,
-            Self::Used => Alignment::Right,
-            Self::Use => Alignment::Right,
-            Self::UsePercent => Alignment::Right,
-            Self::Free => Alignment::Right,
-            Self::FreePercent => Alignment::Right,
-            Self::Size => Alignment::Right,
-            Self::InodesUsed => Alignment::Right,
-            Self::InodesUse => Alignment::Right,
-            Self::InodesUsePercent => Alignment::Right,
-            Self::InodesFree => Alignment::Right,
-            Self::InodesCount => Alignment::Right,
+            Self::Used => Alignment::Center,
+            Self::Use => Alignment::Center,
+            Self::UsePercent => Alignment::Center,
+            Self::Free => Alignment::Center,
+            Self::FreePercent => Alignment::Center,
+            Self::Size => Alignment::Center,
+            Self::InodesUsed => Alignment::Center,
+            Self::InodesUse => Alignment::Center,
+            Self::InodesUsePercent => Alignment::Center,
+            Self::InodesFree => Alignment::Center,
+            Self::InodesCount => Alignment::Center,
             Self::MountPoint => Alignment::Left,
             Self::Uuid => Alignment::Left,
             Self::PartUuid => Alignment::Left,
@@ -149,12 +148,12 @@ impl Col {
             Self::Type => "filesystem type",
             Self::Remote => "whether it's a remote filesystem",
             Self::Disk => "storage type",
-            Self::Used => "size used",
-            Self::Use => "usage graphical view",
-            Self::UsePercent => "percentage of blocks used",
-            Self::Free => "free bytes",
-            Self::FreePercent => "percentage of free blocks",
-            Self::Size => "total size",
+            Self::Used => "bytes used (or inodes used with -i)",
+            Self::Use => "usage graphical view (bytes or inodes with -i)",
+            Self::UsePercent => "percentage used (bytes or inodes with -i)",
+            Self::Free => "free bytes (or free inodes with -i)",
+            Self::FreePercent => "percentage free (bytes or inodes with -i)",
+            Self::Size => "total size (bytes or inodes with -i)",
             Self::InodesUsed => "number of inodes used",
             Self::InodesUse => "graphical view of inodes usage",
             Self::InodesUsePercent => "percentage of inodes used",
@@ -191,8 +190,6 @@ impl Col {
                 (None, None) => Ordering::Equal,
             },
             Self::Use | Self::UsePercent =>  |a: &Mount, b: &Mount| match (&a.stats(), &b.stats()) {
-                // the 'use' column shows the percentage of used blocks, so it makes sense
-                // to sort by use_share for it
                 // SAFETY: use_share() doesn't return NaN
                 (Some(a), Some(b)) => a.use_share().partial_cmp(&b.use_share()).unwrap(),
                 (Some(_), None) => Ordering::Greater,
@@ -308,4 +305,3 @@ impl fmt::Display for ParseColError {
     }
 }
 impl std::error::Error for ParseColError {}
-

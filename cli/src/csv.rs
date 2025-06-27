@@ -51,11 +51,14 @@ impl<W: Write> Csv<W> {
 
 pub fn print(mounts: &[&Mount], args: &Args) -> Result<(), std::io::Error> {
     let units = args.units;
+    let inodes_mode = args.inodes;
     let mut csv = Csv::new(args.csv_separator, std::io::stdout());
+    
     for col in args.cols.cols() {
-        csv.cell(col.title())?;
+        csv.cell(col.title(inodes_mode))?;
     }
     csv.end_line()?;
+    
     for mount in mounts {
         for col in args.cols.cols() {
             match col {
@@ -66,12 +69,48 @@ pub fn print(mounts: &[&Mount], args: &Args) -> Result<(), std::io::Error> {
                 Col::Type => csv.cell(&mount.info.fs_type),
                 Col::Remote => csv.cell(if mount.info.is_remote() { "yes" } else { "no" }),
                 Col::Disk => csv.cell_opt(mount.disk.as_ref().map(|d| d.disk_type())),
-                Col::Used => csv.cell_opt(mount.stats().map(|s| units.fmt(s.used()))),
-                Col::Use => csv.cell_opt(mount.stats().map(|s| s.use_share())),
-                Col::UsePercent => csv.cell_opt(mount.stats().map(|s| format!("{:.0}%", 100.0 * s.use_share()))),
-                Col::Free => csv.cell_opt(mount.stats().map(|s| units.fmt(s.available()))),
-                Col::FreePercent => csv.cell_opt(mount.stats().map(|s| format!("{:.0}%", 100.0 * (1.0 - s.use_share())))),
-                Col::Size => csv.cell_opt(mount.stats().map(|s| units.fmt(s.size()))),
+                Col::Used => {
+                    if inodes_mode {
+                        csv.cell_opt(mount.inodes().map(|i| i.used()))
+                    } else {
+                        csv.cell_opt(mount.stats().map(|s| units.fmt(s.used())))
+                    }
+                },
+                Col::Use => {
+                    if inodes_mode {
+                        csv.cell_opt(mount.inodes().map(|i| i.use_share()))
+                    } else {
+                        csv.cell_opt(mount.stats().map(|s| s.use_share()))
+                    }
+                },
+                Col::UsePercent => {
+                    if inodes_mode {
+                        csv.cell_opt(mount.inodes().map(|i| format!("{:.0}%", 100.0 * i.use_share())))
+                    } else {
+                        csv.cell_opt(mount.stats().map(|s| format!("{:.0}%", 100.0 * s.use_share())))
+                    }
+                },
+                Col::Free => {
+                    if inodes_mode {
+                        csv.cell_opt(mount.inodes().map(|i| i.favail))
+                    } else {
+                        csv.cell_opt(mount.stats().map(|s| units.fmt(s.available())))
+                    }
+                },
+                Col::FreePercent => {
+                    if inodes_mode {
+                        csv.cell_opt(mount.inodes().map(|i| format!("{:.0}%", 100.0 * (1.0 - i.use_share()))))
+                    } else {
+                        csv.cell_opt(mount.stats().map(|s| format!("{:.0}%", 100.0 * (1.0 - s.use_share()))))
+                    }
+                },
+                Col::Size => {
+                    if inodes_mode {
+                        csv.cell_opt(mount.inodes().map(|i| i.files))
+                    } else {
+                        csv.cell_opt(mount.stats().map(|s| units.fmt(s.size())))
+                    }
+                },
                 Col::InodesUsed => csv.cell_opt(mount.inodes().map(|i| i.used())),
                 Col::InodesUse => csv.cell_opt(mount.inodes().map(|i| i.use_share())),
                 Col::InodesUsePercent => csv.cell_opt(mount.inodes().map(|i| format!("{:.0}%", 100.0 * i.use_share()))),

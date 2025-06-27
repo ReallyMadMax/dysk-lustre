@@ -25,20 +25,21 @@ pub fn print(mounts: &[&Mount], color: bool, args: &Args) {
         return;
     }
     let units = args.units;
+    let inodes_mode = args.inodes;  // Add this line
     let mut expander = OwningTemplateExpander::new();
     expander.set_default("");
-    
+
     // Check if this is a Lustre-only display
     let is_lustre_display = mounts.iter().all(|m| m.info.fs_type == "lustre") && mounts.len() > 1;
     let mut added_separator = false;
-    
+
     for mount in mounts {
         // Add empty row separator before client mount (filesystem summary) in Lustre display
         if is_lustre_display && !added_separator && mount.info.fs == "filesystem_summary" {
             expander.sub("rows"); // Add empty row
             added_separator = true;
         }
-        
+
         let sub = expander
             .sub("rows")
             .set("id", mount.info.id)
@@ -57,21 +58,41 @@ pub fn print(mounts: &[&Mount], color: bool, args: &Args) {
             sub.set("remote", "x");
         }
         if let Some(stats) = mount.stats() {
-            let use_share = stats.use_share();
-            let free_share = 1.0 - use_share;
-            sub
-                .set("size", units.fmt(stats.size()))
-                .set("used", units.fmt(stats.used()))
-                .set("use-percents", format!("{:.0}%", 100.0 * use_share))
-                .set_md("bar", progress_bar_md(use_share, BAR_WIDTH, args.ascii))
-                .set("free", units.fmt(stats.available()))
-                .set("free-percents", format!("{:.0}%", 100.0 * free_share));
+            if inodes_mode {
+                // Show inode data instead of byte data
+                if let Some(inodes) = &stats.inodes {
+                    let iuse_share = inodes.use_share();
+                    let ifree_share = 1.0 - iuse_share;
+                    sub
+                        .set("size", inodes.files)
+                        .set("used", inodes.used())
+                        .set("use-percents", format!("{:.0}%", 100.0 * iuse_share))
+                        .set_md("bar", progress_bar_md(iuse_share, BAR_WIDTH, args.ascii))
+                        .set("free", inodes.favail)
+                        .set("free-percents", format!("{:.0}%", 100.0 * ifree_share));
+                } else {
+                    sub.set("use-error", "no inodes data");
+                }
+            } else {
+                // Show byte data (default)
+                let use_share = stats.use_share();
+                let free_share = 1.0 - use_share;
+                sub
+                    .set("size", units.fmt(stats.size()))
+                    .set("used", units.fmt(stats.used()))
+                    .set("use-percents", format!("{:>3.0}%", 100.0 * use_share))
+                    .set_md("bar", progress_bar_md(use_share, BAR_WIDTH, args.ascii))
+                    .set("free", units.fmt(stats.available()))
+                    .set("free-percents", format!("{:.0}%", 100.0 * free_share));
+            }
+            
+            // Always set the dedicated inode columns regardless of mode
             if let Some(inodes) = &stats.inodes {
                 let iuse_share = inodes.use_share();
                 sub
                     .set("inodes", inodes.files)
                     .set("iused", inodes.used())
-                    .set("iuse-percents", format!("{:.0}%", 100.0 * iuse_share))
+                    .set("iuse-percents", format!("{:>3.0}%", 100.0 * iuse_share))
                     .set_md("ibar", progress_bar_md(iuse_share, INODES_BAR_WIDTH, args.ascii))
                     .set("ifree", inodes.favail);
             }
@@ -92,7 +113,7 @@ pub fn print(mounts: &[&Mount], color: bool, args: &Args) {
     for col in args.cols.cols() {
         tbl.col(
             minimad::Col::new(
-                col.title(),
+                col.title(inodes_mode),
                 match col {
                     Col::Id => "${id}",
                     Col::Dev => "${dev-major}:${dev-minor}",
@@ -142,7 +163,7 @@ fn progress_bar_md(
 ) -> String {
     if ascii {
         let count = (share * bar_width as f64).round() as usize;
-        let bar: String = "".repeat(count);
+        let bar: String = "■".repeat(count);
         let no_bar: String = "-".repeat(bar_width-count);
         format!("~~{}~~*{}*", bar, no_bar)
     } else {
@@ -150,4 +171,3 @@ fn progress_bar_md(
         format!("`{:<width$}`", pb, width = bar_width)
     }
 }
-

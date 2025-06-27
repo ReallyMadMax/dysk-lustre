@@ -32,9 +32,14 @@ static EXAMPLES: &[Example] = &[
         ""
     ),
     Example::new(
-        "Display inodes information",
+        "Display inodes information instead of bytes",
+        "dysk -i",
+        "Shows inode counts in used/free/size columns instead of byte counts"
+    ),
+    Example::new(
+        "Display inodes information with custom columns",
         "dysk -c +inodes",
-        ""
+        "Add dedicated inode columns alongside byte columns"
     ),
     Example::new(
         "Add columns of your choice",
@@ -111,4 +116,3 @@ impl Example {
         Self { title, cmd, comments }
     }
 }
-

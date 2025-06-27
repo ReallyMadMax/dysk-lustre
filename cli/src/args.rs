@@ -45,6 +45,10 @@ pub struct Args {
     #[arg(long)]
     pub list_cols: bool,
 
+    /// show inodes information instead of byte counts
+    #[arg(short = 'i', long)]
+    pub inodes: bool,
+
     /// columns, eg `-c +inodes` or `-c id+dev+default`
     #[arg(short, long, default_value = "fs+type+disk+used+use+free+size+mp", value_name = "columns")]
     pub cols: Cols,
