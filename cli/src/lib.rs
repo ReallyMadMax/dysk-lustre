@@ -13,11 +13,8 @@ pub mod sorting;
 pub mod table;
 pub mod units;
 
-// Lustre integration modules - always enabled
-pub mod lustre_bindings;
-pub mod lustre_core;
-
 use lfs_core::Mount;
+use rustreapi::LustrePath;
 use {
     crate::{
         args::*,
@@ -38,7 +35,7 @@ fn parse_lustre_component(name: &str) -> Option<(String, u32)> {
         let after_dash = &name[dash_pos + 1..];
         if let Some(underscore_pos) = after_dash.find('_') {
             let component_part = &after_dash[..underscore_pos];
-            
+
             // Extract type (MDT/OST) and number
             if component_part.len() >= 7 { // At least "MDT0000" or "OST0000"
                 let (comp_type, num_str) = component_part.split_at(3);
@@ -68,10 +65,10 @@ pub fn run() {
         csi_reset();
         return;
     }
-    
+
     let mut options = lfs_core::ReadOptions::default();
     options.remote_stats(args.remote_stats.unwrap_or_else(||true));
-    
+
     let mut mounts = match lfs_core::read_mounts(&options) {
         Ok(mounts) => mounts,
         Err(e) => {
@@ -88,11 +85,10 @@ pub fn run() {
         }
     });
 
-    // Add Lustre API-based mounts
-    let lustre_mounts = lustre_core::discover_lustre_mounts();
-    
+    let lustre_mounts = LustrePath::discover_lustre_mounts();
+
     replace_lustre_client_mounts(&mut mounts, &lustre_mounts);
-    
+
     let mut has_lustre_mounts = false;
     for lustre_mount in lustre_mounts {
         if is_lustre_component_mount(&lustre_mount) {
@@ -108,23 +104,23 @@ pub fn run() {
     if !args.all {
         if has_lustre_mounts {
             mounts.retain(|m| m.info.fs_type == "lustre");
-            
+
             mounts.sort_by(|a, b| {
                 let a_name = &a.info.fs;
                 let b_name = &b.info.fs;
-                
+
                 // Client mount (filesystem_summary) should come LAST
                 let a_is_client = a_name == "filesystem_summary";
                 let b_is_client = b_name == "filesystem_summary";
-                
+
                 match (a_is_client, b_is_client) {
-                    (true, false) => std::cmp::Ordering::Greater,  
-                    (false, true) => std::cmp::Ordering::Less,     
-                    (true, true) => a_name.cmp(b_name),           
+                    (true, false) => std::cmp::Ordering::Greater,
+                    (false, true) => std::cmp::Ordering::Less,
+                    (true, true) => a_name.cmp(b_name),
                     (false, false) => {
                         let a_parts = parse_lustre_component(a_name);
                         let b_parts = parse_lustre_component(b_name);
-                        
+
                         match (a_parts, b_parts) {
                             (Some((a_type, a_idx)), Some((b_type, b_idx))) => {
                                 // MDTs come before OSTs
@@ -148,7 +144,7 @@ pub fn run() {
     } else {
         args.sort.sort(&mut mounts);
     }
-    
+
     let final_args = if has_lustre_mounts && !args.all && mounts.iter().all(|m| m.info.fs_type == "lustre") {
         if args.cols == Cols::default() {
             let mut modified_args = args.clone();
@@ -169,7 +165,7 @@ pub fn run() {
     } else {
         args.clone()
     };
-    
+
     if let Some(path) = &args.path {
         let md = match fs::metadata(path) {
             Ok(md) => md,
@@ -179,21 +175,28 @@ pub fn run() {
             }
         };
         let dev = lfs_core::DeviceId::from(md.dev());
-        
-        if lustre_core::is_lustre_path(path) {
+
+        let is_lustre = {
+            match LustrePath::parse(&path.to_string_lossy()) {
+                Ok(_) => true,
+                Err(_) => false,
+            }
+        };
+
+        if is_lustre {
             mounts.retain(|m| m.info.fs_type == "lustre" && path.starts_with(&m.info.mount_point));
         } else {
             mounts.retain(|m| m.info.dev == dev);
         }
     }
-    
-    let is_lustre_only_view = has_lustre_mounts && !args.all && 
+
+    let is_lustre_only_view = has_lustre_mounts && !args.all &&
         mounts.iter().all(|m| m.info.fs_type == "lustre");
-    
+
     if !is_lustre_only_view {
         final_args.sort.sort(&mut mounts);
     }
-    
+
     let mounts = match final_args.filter.clone().unwrap_or_default().filter(&mounts) {
         Ok(mounts) => mounts,
         Err(e) => {
@@ -224,11 +227,11 @@ pub fn run() {
 fn is_lustre_server_component(mount_point: &std::path::Path) -> bool {
     let path_str = mount_point.to_string_lossy();
     // Common patterns for Lustre server mounts
-    path_str.contains("-ost") || 
-    path_str.contains("-mdt") || 
-    path_str.contains("-mds") ||
-    path_str.contains("ost") && (path_str.contains("lustre") || path_str.contains("scratch")) ||
-    path_str.contains("mdt") && (path_str.contains("lustre") || path_str.contains("scratch"))
+    path_str.contains("-ost") ||
+        path_str.contains("-mdt") ||
+        path_str.contains("-mds") ||
+        path_str.contains("ost") && (path_str.contains("lustre") || path_str.contains("scratch")) ||
+        path_str.contains("mdt") && (path_str.contains("lustre") || path_str.contains("scratch"))
 }
 
 /// Check if this is one of our component mounts (has [MDT:] or [OST:] in the path)
@@ -243,8 +246,8 @@ fn replace_lustre_client_mounts(mounts: &mut Vec<Mount>, lustre_mounts: &[Mount]
         if !is_lustre_component_mount(lustre_mount) {
             // This is a client mount, find and replace the corresponding regular mount
             if let Some(pos) = mounts.iter().position(|m| {
-                m.info.fs_type == "lustre" && 
-                m.info.mount_point == lustre_mount.info.mount_point
+                m.info.fs_type == "lustre" &&
+                    m.info.mount_point == lustre_mount.info.mount_point
             }) {
                 mounts[pos] = lustre_mount.clone();
             } else {
