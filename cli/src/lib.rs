@@ -15,6 +15,8 @@ pub mod units;
 
 use lfs_core::Mount;
 use rustreapi::LustrePath;
+use rustreapi::MountStats;
+use rustreapi::Mount as LustreMount;
 use {
     crate::{
         args::*,
@@ -85,12 +87,17 @@ pub fn run() {
         }
     });
 
-    let lustre_mounts = LustrePath::discover_lustre_mounts();
+    let lustre_mounts = MountStats::discover_mounts();
 
-    replace_lustre_client_mounts(&mut mounts, &lustre_mounts);
+    // Convert rustreapi::Mount to lfs_core::Mount
+    let converted_lustre_mounts: Vec<Mount> = lustre_mounts.iter()
+        .map(|lustre_mount| convert_lustre_mount_to_lfs_mount(lustre_mount))
+        .collect();
+
+    replace_lustre_client_mounts(&mut mounts, &converted_lustre_mounts);
 
     let mut has_lustre_mounts = false;
-    for lustre_mount in lustre_mounts {
+    for lustre_mount in converted_lustre_mounts {
         if is_lustre_component_mount(&lustre_mount) {
             mounts.push(lustre_mount);
             has_lustre_mounts = true;
@@ -223,6 +230,49 @@ pub fn run() {
     csi_reset();
 }
 
+/// Convert rustreapi::Mount to lfs_core::Mount for integration
+fn convert_lustre_mount_to_lfs_mount(lustre_mount: &LustreMount) -> Mount {
+    // Convert rustreapi types to lfs_core types
+    let device_id = lfs_core::DeviceId {
+        major: lustre_mount.info.dev.major,
+        minor: lustre_mount.info.dev.minor,
+    };
+
+    let mount_info = lfs_core::MountInfo {
+        id: lustre_mount.info.id,
+        parent: lustre_mount.info.parent,
+        dev: device_id,
+        root: lustre_mount.info.root.clone(),
+        mount_point: lustre_mount.info.mount_point.clone(),
+        fs: lustre_mount.info.fs.clone(),
+        fs_type: lustre_mount.info.fs_type.clone(),
+        bound: lustre_mount.info.bound,
+    };
+
+    let inodes = lustre_mount.stats.inodes.as_ref().map(|i| lfs_core::Inodes {
+        files: i.files,
+        ffree: i.ffree,
+        favail: i.favail,
+    });
+
+    let stats = lfs_core::Stats {
+        bsize: lustre_mount.stats.bsize,
+        blocks: lustre_mount.stats.blocks,
+        bfree: lustre_mount.stats.bfree,
+        bavail: lustre_mount.stats.bavail,
+        inodes,
+    };
+
+    Mount {
+        info: mount_info,
+        fs_label: lustre_mount.fs_label.clone(),
+        disk: None,
+        stats: Ok(stats),
+        uuid: lustre_mount.uuid.clone(),
+        part_uuid: lustre_mount.part_uuid.clone(),
+    }
+}
+
 /// Check if a mount point looks like a Lustre server component
 fn is_lustre_server_component(mount_point: &std::path::Path) -> bool {
     let path_str = mount_point.to_string_lossy();
@@ -241,7 +291,7 @@ fn is_lustre_component_mount(mount: &Mount) -> bool {
 }
 
 /// Replace Lustre client mounts with API-enhanced versions that have better stats
-fn replace_lustre_client_mounts(mounts: &mut Vec<Mount>, lustre_mounts: &[Mount]) {
+fn replace_lustre_client_mounts(mounts: &mut Vec<Mount>, lustre_mounts: &Vec<Mount>) {
     for lustre_mount in lustre_mounts {
         if !is_lustre_component_mount(lustre_mount) {
             // This is a client mount, find and replace the corresponding regular mount
