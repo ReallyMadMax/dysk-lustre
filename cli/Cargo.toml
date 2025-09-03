@@ -4,24 +4,19 @@ version = "2.10.1"
 authors = ["dystroy <denys.seguret@gmail.com>"]
 edition = "2021"
 license = "MIT"
-description = "the dysk cli as a library"
+description = "Dysk built for Lustre filesystems"
 rust-version = "1.70"
 resolver = "1"
 
 [dependencies]
+rustreapi = { git = "ssh://git@github.com/whamcloud/rustreapi.git" }
 bet = "1.0.4"
 clap = { version = "4.4", features = ["derive", "cargo"] }
 clap-help = "1.4"
 file-size = "1.0.3"
 lfs-core = "0.12"
-serde = "1.0"
 serde_json = "1.0"
 termimad = "0.32"
-libc = "0.2.172"
 
 [profile.release]
 strip = true
-
-[patch.crates-io]
-# termimad = { path = "../../termimad" }
-

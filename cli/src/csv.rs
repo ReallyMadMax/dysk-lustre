@@ -117,8 +117,65 @@ pub fn print(mounts: &[&Mount], args: &Args) -> Result<(), std::io::Error> {
                 Col::InodesFree => csv.cell_opt(mount.inodes().map(|i| i.favail)),
                 Col::InodesCount => csv.cell_opt(mount.inodes().map(|i| i.files)),
                 Col::MountPoint => csv.cell(mount.info.mount_point.to_string_lossy()),
+                Col::FsName => csv.cell(crate::col::extract_fsname(&mount)),
                 Col::Uuid => csv.cell(mount.uuid.as_ref().map_or("", |v| v)),
                 Col::PartUuid => csv.cell(mount.part_uuid.as_ref().map_or("", |v| v)),
+                Col::StripeCount => {
+                    let mount_point_str = mount.info.mount_point.to_string_lossy();
+                    if let Some(lustre_info) = crate::get_lustre_info(&mount_point_str) {
+                        csv.cell_opt(lustre_info.stripe_count.map(|c| c.to_string()))
+                    } else {
+                        csv.cell("")
+                    }
+                },
+                Col::StripeSize => {
+                    let mount_point_str = mount.info.mount_point.to_string_lossy();
+                    if let Some(lustre_info) = crate::get_lustre_info(&mount_point_str) {
+                        csv.cell_opt(lustre_info.stripe_size.map(|s| s.to_string()))
+                    } else {
+                        csv.cell("")
+                    }
+                },
+                Col::LustreVersion => {
+                    let mount_point_str = mount.info.mount_point.to_string_lossy();
+                    if let Some(lustre_info) = crate::get_lustre_info(&mount_point_str) {
+                        csv.cell(lustre_info.lustre_version.as_deref().unwrap_or(""))
+                    } else {
+                        csv.cell("")
+                    }
+                },
+                Col::PoolName => {
+                    let mount_point_str = mount.info.mount_point.to_string_lossy();
+                    if let Some(lustre_info) = crate::get_lustre_info(&mount_point_str) {
+                        csv.cell(lustre_info.pool_name.as_deref().unwrap_or(""))
+                    } else {
+                        csv.cell("")
+                    }
+                },
+                Col::ComponentType => {
+                    let mount_point_str = mount.info.mount_point.to_string_lossy();
+                    if let Some(lustre_info) = crate::get_lustre_info(&mount_point_str) {
+                        csv.cell(lustre_info.component_type.as_deref().unwrap_or(""))
+                    } else {
+                        csv.cell("")
+                    }
+                },
+                Col::ComponentIndex => {
+                    let mount_point_str = mount.info.mount_point.to_string_lossy();
+                    if let Some(lustre_info) = crate::get_lustre_info(&mount_point_str) {
+                        csv.cell_opt(lustre_info.component_index.map(|i| i.to_string()))
+                    } else {
+                        csv.cell("")
+                    }
+                },
+                Col::MirrorCount => {
+                    let mount_point_str = mount.info.mount_point.to_string_lossy();
+                    if let Some(lustre_info) = crate::get_lustre_info(&mount_point_str) {
+                        csv.cell_opt(lustre_info.mirror_count.map(|m| m.to_string()))
+                    } else {
+                        csv.cell("")
+                    }
+                },
             }?;
         }
         csv.end_line()?;

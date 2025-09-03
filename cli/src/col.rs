@@ -9,6 +9,19 @@ use {
     termimad::minimad::Alignment,
 };
 
+/// Extract filesystem name for display
+/// For Lustre: show mount points for components and client mount
+/// For others: use filesystem type
+pub fn extract_fsname(mount: &Mount) -> String {
+    if mount.info.fs_type == "lustre" {
+        // For all Lustre mounts, return the mount point
+        mount.info.mount_point.to_string_lossy().to_string()
+    } else {
+        // For non-Lustre filesystems, use filesystem type
+        mount.info.fs_type.clone()
+    }
+}
+
 macro_rules! col_enum {
     (@just_variant $variant:ident $discarded:ident) => {
         Col::$variant
@@ -87,9 +100,9 @@ col_enum!(
     Dev "dev" "device" "device_id": "dev" "dev",
     Filesystem "fs" "filesystem": "filesystem" "filesystem" default,
     Label "label": "label" "label",
-    Type "type": "type" "type" default,
+    Type "type": "type" "type",
     Remote "remote" "rem": "remote" "remote",
-    Disk "disk" "dsk": "disk" "disk" default,
+    Disk "disk" "dsk": "disk" "disk",
     Used "used": "bytes used" "inodes used" default,
     Use "use": "use %" "use %" default,
     UsePercent "use_percent": "bytes %" "inodes %",
@@ -102,8 +115,16 @@ col_enum!(
     InodesFree "inodes_free" "ifree": "free inodes" "free inodes",
     InodesCount "inodes_total" "inodes_count" "itotal": "inodes total" "inodes total",
     MountPoint "mount" "mount_point" "mp": "mount point" "mount point" default,
+    FsName "fsname" "fs_name": "filesystem name" "fsname",
     Uuid "uuid": "UUID" "UUID",
     PartUuid "partuuid" "part_uuid": "PARTUUID" "PARTUUID",
+    StripeCount "stripe_count" "stripes": "stripe count" "stripe count",
+    StripeSize "stripe_size": "stripe size" "stripe size", 
+    LustreVersion "lustre_version" "lus_ver": "lustre version" "lustre version",
+    PoolName "pool_name" "pool": "pool name" "pool name",
+    ComponentType "component_type" "comp_type": "component type" "component type",
+    ComponentIndex "component_index" "comp_idx": "component index" "component index",
+    MirrorCount "mirror_count" "mirrors": "mirror count" "mirror count",
 );
 
 impl Col {
@@ -111,6 +132,7 @@ impl Col {
         match self {
             Self::Label => Alignment::Left,
             Self::MountPoint => Alignment::Left,
+            Self::FsName => Alignment::Left,
             _ => Alignment::Center,
         }
     }
@@ -135,8 +157,16 @@ impl Col {
             Self::InodesFree => Alignment::Center,
             Self::InodesCount => Alignment::Center,
             Self::MountPoint => Alignment::Left,
+            Self::FsName => Alignment::Left,
             Self::Uuid => Alignment::Left,
             Self::PartUuid => Alignment::Left,
+            Self::StripeCount => Alignment::Center,
+            Self::StripeSize => Alignment::Center,
+            Self::LustreVersion => Alignment::Center,
+            Self::PoolName => Alignment::Left,
+            Self::ComponentType => Alignment::Center,
+            Self::ComponentIndex => Alignment::Center,
+            Self::MirrorCount => Alignment::Center,
         }
     }
     pub fn description(self) -> &'static str {
@@ -160,8 +190,16 @@ impl Col {
             Self::InodesFree => "number of free inodes",
             Self::InodesCount => "total count of inodes",
             Self::MountPoint => "mount point",
+            Self::FsName => "filesystem name",
             Self::Uuid => "filesystem UUID",
             Self::PartUuid => "partition UUID",
+            Self::StripeCount => "number of OSTs file data is striped across",
+            Self::StripeSize => "size of each stripe in bytes",
+            Self::LustreVersion => "version of Lustre filesystem",
+            Self::PoolName => "OST pool name for workload isolation",
+            Self::ComponentType => "type of Lustre component (MDT/OST/CLIENT)",
+            Self::ComponentIndex => "index number of the component",
+            Self::MirrorCount => "number of file mirrors for data replication",
         }
     }
     pub fn comparator(self) -> impl for<'a, 'b> FnMut(&'a Mount, &'b Mount) -> Ordering {
@@ -240,6 +278,7 @@ impl Col {
                 (None, None) => Ordering::Equal,
             },
             Self::MountPoint =>  |a: &Mount, b: &Mount| a.info.mount_point.cmp(&b.info.mount_point),
+            Self::FsName => |a: &Mount, b: &Mount| extract_fsname(a).cmp(&extract_fsname(b)),
             Self::Uuid => |a: &Mount, b: &Mount| match (&a.uuid, &b.uuid) {
                 (Some(a), Some(b)) => a.cmp(b),
                 (Some(_), None) => Ordering::Less,
@@ -251,6 +290,55 @@ impl Col {
                 (Some(_), None) => Ordering::Less,
                 (None, Some(_)) => Ordering::Greater,
                 (None, None) => Ordering::Equal,
+            },
+            Self::StripeCount => |a: &Mount, b: &Mount| {
+                let a_point = a.info.mount_point.to_string_lossy();
+                let b_point = b.info.mount_point.to_string_lossy();
+                let a_info = crate::get_lustre_info(&a_point).and_then(|i| i.stripe_count).unwrap_or(0);
+                let b_info = crate::get_lustre_info(&b_point).and_then(|i| i.stripe_count).unwrap_or(0);
+                a_info.cmp(&b_info)
+            },
+            Self::StripeSize => |a: &Mount, b: &Mount| {
+                let a_point = a.info.mount_point.to_string_lossy();
+                let b_point = b.info.mount_point.to_string_lossy();
+                let a_info = crate::get_lustre_info(&a_point).and_then(|i| i.stripe_size).unwrap_or(0);
+                let b_info = crate::get_lustre_info(&b_point).and_then(|i| i.stripe_size).unwrap_or(0);
+                a_info.cmp(&b_info)
+            },
+            Self::LustreVersion => |a: &Mount, b: &Mount| {
+                let a_point = a.info.mount_point.to_string_lossy();
+                let b_point = b.info.mount_point.to_string_lossy();
+                let a_info = crate::get_lustre_info(&a_point).and_then(|i| i.lustre_version).unwrap_or_else(|| "".to_string());
+                let b_info = crate::get_lustre_info(&b_point).and_then(|i| i.lustre_version).unwrap_or_else(|| "".to_string());
+                a_info.cmp(&b_info)
+            },
+            Self::PoolName => |a: &Mount, b: &Mount| {
+                let a_point = a.info.mount_point.to_string_lossy();
+                let b_point = b.info.mount_point.to_string_lossy();
+                let a_info = crate::get_lustre_info(&a_point).and_then(|i| i.pool_name).unwrap_or_else(|| "".to_string());
+                let b_info = crate::get_lustre_info(&b_point).and_then(|i| i.pool_name).unwrap_or_else(|| "".to_string());
+                a_info.cmp(&b_info)
+            },
+            Self::ComponentType => |a: &Mount, b: &Mount| {
+                let a_point = a.info.mount_point.to_string_lossy();
+                let b_point = b.info.mount_point.to_string_lossy();
+                let a_info = crate::get_lustre_info(&a_point).and_then(|i| i.component_type).unwrap_or_else(|| "".to_string());
+                let b_info = crate::get_lustre_info(&b_point).and_then(|i| i.component_type).unwrap_or_else(|| "".to_string());
+                a_info.cmp(&b_info)
+            },
+            Self::ComponentIndex => |a: &Mount, b: &Mount| {
+                let a_point = a.info.mount_point.to_string_lossy();
+                let b_point = b.info.mount_point.to_string_lossy();
+                let a_info = crate::get_lustre_info(&a_point).and_then(|i| i.component_index).unwrap_or(u32::MAX);
+                let b_info = crate::get_lustre_info(&b_point).and_then(|i| i.component_index).unwrap_or(u32::MAX);
+                a_info.cmp(&b_info)
+            },
+            Self::MirrorCount => |a: &Mount, b: &Mount| {
+                let a_point = a.info.mount_point.to_string_lossy();
+                let b_point = b.info.mount_point.to_string_lossy();
+                let a_info = crate::get_lustre_info(&a_point).and_then(|i| i.mirror_count).unwrap_or(0);
+                let b_info = crate::get_lustre_info(&b_point).and_then(|i| i.mirror_count).unwrap_or(0);
+                a_info.cmp(&b_info)
             },
         }
     }
@@ -275,8 +363,16 @@ impl Col {
             Self::InodesFree => Order::Asc,
             Self::InodesCount => Order::Asc,
             Self::MountPoint => Order::Asc,
+            Self::FsName => Order::Asc,
             Self::Uuid => Order::Asc,
             Self::PartUuid => Order::Asc,
+            Self::StripeCount => Order::Desc,
+            Self::StripeSize => Order::Desc,
+            Self::LustreVersion => Order::Asc,
+            Self::PoolName => Order::Asc,
+            Self::ComponentType => Order::Asc,
+            Self::ComponentIndex => Order::Asc,
+            Self::MirrorCount => Order::Desc,
         }
     }
     pub fn default_sort_col() -> Self {

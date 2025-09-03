@@ -39,6 +39,19 @@ pub fn output_value(mounts: &[&Mount], units: Units) -> Value {
                         "ram": d.ram,
                     })
                 });
+                let mount_point_str = mount.info.mount_point.to_string_lossy();
+                let lustre_info = crate::get_lustre_info(&mount_point_str).map(|info| {
+                    json!({
+                        "stripe-count": info.stripe_count,
+                        "stripe-size": info.stripe_size,
+                        "lustre-version": info.lustre_version,
+                        "pool-name": info.pool_name,
+                        "component-type": info.component_type,
+                        "component-index": info.component_index,
+                        "mirror-count": info.mirror_count,
+                    })
+                });
+                
                 json!({
                     "id": mount.info.id,
                     "dev": {
@@ -49,8 +62,10 @@ pub fn output_value(mounts: &[&Mount], units: Units) -> Value {
                     "fs-label": mount.fs_label,
                     "fs-type": mount.info.fs_type,
                     "mount-point": mount.info.mount_point,
+                    "fs-name": crate::col::extract_fsname(&mount),
                     "disk": disk,
                     "stats": stats,
+                    "lustre": lustre_info,
                     "bound": mount.info.bound,
                     "remote": mount.info.is_remote(),
                     "unreachable": mount.is_unreachable(),

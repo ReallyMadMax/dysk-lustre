@@ -137,6 +137,10 @@ impl ColExpr {
                 &mount.info.mount_point.to_string_lossy(),
                 &self.value,
             ),
+            Col::FsName => self.operator.eval_str(
+                &crate::col::extract_fsname(&mount),
+                &self.value,
+            ),
             Col::Uuid => self.operator.eval_option_str(
                 mount.uuid.as_deref(),
                 &self.value,
@@ -145,6 +149,102 @@ impl ColExpr {
                 mount.part_uuid.as_deref(),
                 &self.value,
             ),
+            Col::StripeCount => {
+                let mount_point_str = mount.info.mount_point.to_string_lossy();
+                if let Some(lustre_info) = crate::get_lustre_info(&mount_point_str) {
+                    if let Some(stripe_count) = lustre_info.stripe_count {
+                        self.operator.eval(
+                            stripe_count,
+                            self.value.parse::<u64>().map_err(|_| EvalExprError::NotANumber(self.value.to_string()))?,
+                        )
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            },
+            Col::StripeSize => {
+                let mount_point_str = mount.info.mount_point.to_string_lossy();
+                if let Some(lustre_info) = crate::get_lustre_info(&mount_point_str) {
+                    if let Some(stripe_size) = lustre_info.stripe_size {
+                        self.operator.eval(
+                            stripe_size,
+                            self.value.parse::<u64>().map_err(|_| EvalExprError::NotANumber(self.value.to_string()))?,
+                        )
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            },
+            Col::LustreVersion => {
+                let mount_point_str = mount.info.mount_point.to_string_lossy();
+                if let Some(lustre_info) = crate::get_lustre_info(&mount_point_str) {
+                    if let Some(lustre_version) = lustre_info.lustre_version {
+                        self.operator.eval_str(&lustre_version, &self.value)
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            },
+            Col::PoolName => {
+                let mount_point_str = mount.info.mount_point.to_string_lossy();
+                if let Some(lustre_info) = crate::get_lustre_info(&mount_point_str) {
+                    if let Some(pool_name) = lustre_info.pool_name {
+                        self.operator.eval_str(&pool_name, &self.value)
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            },
+            Col::ComponentType => {
+                let mount_point_str = mount.info.mount_point.to_string_lossy();
+                if let Some(lustre_info) = crate::get_lustre_info(&mount_point_str) {
+                    if let Some(component_type) = lustre_info.component_type {
+                        self.operator.eval_str(&component_type, &self.value)
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            },
+            Col::ComponentIndex => {
+                let mount_point_str = mount.info.mount_point.to_string_lossy();
+                if let Some(lustre_info) = crate::get_lustre_info(&mount_point_str) {
+                    if let Some(component_index) = lustre_info.component_index {
+                        self.operator.eval(
+                            component_index,
+                            self.value.parse::<u32>().map_err(|_| EvalExprError::NotANumber(self.value.to_string()))?,
+                        )
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            },
+            Col::MirrorCount => {
+                let mount_point_str = mount.info.mount_point.to_string_lossy();
+                if let Some(lustre_info) = crate::get_lustre_info(&mount_point_str) {
+                    if let Some(mirror_count) = lustre_info.mirror_count {
+                        self.operator.eval(
+                            mirror_count as u32,
+                            self.value.parse::<u32>().map_err(|_| EvalExprError::NotANumber(self.value.to_string()))?,
+                        )
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            },
         })
     }
 }

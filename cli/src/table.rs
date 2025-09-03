@@ -1,6 +1,6 @@
 use {
     crate::{
-        Args, col::Col,
+        Args, col::Col, get_lustre_info,
     },
     lfs_core::*,
     termimad::{
@@ -19,6 +19,39 @@ static SIZE_COLOR: u8 = 172;
 
 static BAR_WIDTH: usize = 5;
 static INODES_BAR_WIDTH: usize = 5;
+
+/// Format stripe size for display (e.g., 1048576 -> "1M")
+fn format_stripe_size(size: u64) -> String {
+    if size == 0 {
+        return "0".to_string();
+    }
+    
+    // Handle unreasonably large values
+    if size > 1024 * 1024 * 1024 * 1024 {  // > 1TB
+        return "-".to_string();
+    }
+    
+    const UNITS: &[(&str, u64)] = &[
+        ("G", 1024 * 1024 * 1024),
+        ("M", 1024 * 1024),
+        ("K", 1024),
+    ];
+    
+    for (unit, divisor) in UNITS {
+        if size >= *divisor && size % divisor == 0 {
+            return format!("{}{}", size / divisor, unit);
+        }
+    }
+    
+    // For values that don't divide evenly, show with appropriate unit anyway
+    for (unit, divisor) in UNITS {
+        if size >= *divisor {
+            return format!("{:.1}{}", size as f64 / *divisor as f64, unit);
+        }
+    }
+    
+    size.to_string()
+}
 
 pub fn print(mounts: &[&Mount], color: bool, args: &Args) {
     if args.cols.is_empty() {
@@ -49,8 +82,44 @@ pub fn print(mounts: &[&Mount], color: bool, args: &Args) {
             .set("disk", mount.disk.as_ref().map_or("", |d| d.disk_type()))
             .set("type", &mount.info.fs_type)
             .set("mount-point", mount.info.mount_point.to_string_lossy())
+            .set("fs-name", crate::col::extract_fsname(&mount))
             .set_option("uuid", mount.uuid.as_ref())
             .set_option("part_uuid", mount.part_uuid.as_ref());
+
+        // Add Lustre-specific information
+        let mount_point_str = mount.info.mount_point.to_string_lossy();
+        if let Some(lustre_info) = get_lustre_info(&mount_point_str) {
+            if let Some(stripe_count) = lustre_info.stripe_count {
+                // Handle unreasonably large stripe counts (likely uninitialized values)
+                if stripe_count > 1000 {
+                    sub.set("stripe-count", "-");
+                } else {
+                    sub.set("stripe-count", stripe_count);
+                }
+            }
+            if let Some(stripe_size) = lustre_info.stripe_size {
+                sub.set("stripe-size", format_stripe_size(stripe_size));
+            }
+            if let Some(lustre_version) = lustre_info.lustre_version {
+                sub.set("lustre-version", lustre_version);
+            }
+            if let Some(pool_name) = lustre_info.pool_name {
+                if pool_name.is_empty() {
+                    sub.set("pool-name", "default");
+                } else {
+                    sub.set("pool-name", pool_name);
+                }
+            }
+            if let Some(component_type) = lustre_info.component_type {
+                sub.set("component-type", component_type);
+            }
+            if let Some(component_index) = lustre_info.component_index {
+                sub.set("component-index", component_index);
+            }
+            if let Some(mirror_count) = lustre_info.mirror_count {
+                sub.set("mirror-count", mirror_count);
+            }
+        }
         if let Some(label) = &mount.fs_label {
             sub.set("label", label);
         }
@@ -134,8 +203,16 @@ pub fn print(mounts: &[&Mount], color: bool, args: &Args) {
                     Col::InodesUsePercent => "~~${iuse-percents}~~",
                     Col::InodesCount => "**${inodes}**",
                     Col::MountPoint => "${mount-point}",
+                    Col::FsName => "${fs-name}",
                     Col::Uuid => "${uuid}",
                     Col::PartUuid => "${part_uuid}",
+                    Col::StripeCount => "${stripe-count}",
+                    Col::StripeSize => "${stripe-size}",
+                    Col::LustreVersion => "${lustre-version}",
+                    Col::PoolName => "${pool-name}",
+                    Col::ComponentType => "${component-type}",
+                    Col::ComponentIndex => "${component-index}",
+                    Col::MirrorCount => "${mirror-count}",
                 }
             )
             .align_content(col.content_align())

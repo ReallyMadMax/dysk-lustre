@@ -50,7 +50,7 @@ pub struct Args {
     pub inodes: bool,
 
     /// columns, eg `-c +inodes` or `-c id+dev+default`
-    #[arg(short, long, default_value = "fs+type+disk+used+use+free+size+mp", value_name = "columns")]
+    #[arg(short, long, default_value = "fs+used+use+free+size+fsname", value_name = "columns")]
     pub cols: Cols,
 
     /// filter, eg `-f '(size<35G | remote=false) & type=xfs'`
